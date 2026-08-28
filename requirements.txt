@@ -1,0 +1,5 @@
+ping3==5.1.5
+hdbcli==2.27.23
+requests==2.32.3
+psutil==7.2.2
+python-dotenv==1.2.2

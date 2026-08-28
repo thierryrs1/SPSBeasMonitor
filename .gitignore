@@ -1,0 +1,26 @@
+﻿# Ignorar arquivos de log
+*.log
+
+# Ignorar arquivos temporários
+*.tmp
+*.bak
+*.swp
+
+# Ignorar configurações locais / IDEs
+.vscode/
+.vs/
+*.suo
+*.user
+*.sublime-workspace
+
+# Credenciais / Variáveis de ambiente
+.env
+*.secret
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+env/
