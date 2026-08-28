@@ -2,9 +2,7 @@ import os
 import subprocess
 import socket
 import psutil
-import time
 import requests
-import shutil
 from ping3 import ping
 from logger import logger
 from database import db_client
@@ -43,11 +41,13 @@ class HanaSystemMonitor:
                 start_time_str = row[0]
                 diff_minutes = row[1]
                 
+                # Levanta o status do último restart efetuado
                 last_recorded = ""
                 if os.path.exists(HanaSystemMonitor.STATE_FILE):
                     with open(HanaSystemMonitor.STATE_FILE, "r", encoding="utf-8") as f:
                         last_recorded = f.read().strip()
                 
+                # Regra: se > 5 minutos de vida, e a chave é inédita (nunca processada)
                 if diff_minutes >= 5:
                     if last_recorded != start_time_str:
                         logger.warning(f"[HANA Global] HANA rodando há {diff_minutes} minutos (Startup: {start_time_str}). Iniciando restart em MASSA nos serviços BEAS...")
@@ -55,6 +55,7 @@ class HanaSystemMonitor:
                         for svc in beas_services:
                             SystemMonitor.restart_service(svc.service_name)
                         
+                        # Trava o estado para evitar loop nos próximos 1 minutos
                         with open(HanaSystemMonitor.STATE_FILE, "w", encoding="utf-8") as f:
                             f.write(start_time_str)
                             
@@ -99,8 +100,8 @@ class SystemMonitor:
                 pid = conn.pid
                 if pid:
                     try:
-                        logger.warning(f"[Sistema] Forçando finalização no PID {pid} (Porta {port}) via taskkill...")
-                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        p = psutil.Process(pid)
+                        p.kill()
                         killed.append(pid)
                     except Exception as e:
                         logger.error(f"[Sistema] Erro ao matar PID {pid} na porta {port}: {e}")
@@ -111,65 +112,11 @@ class SystemMonitor:
             logger.info(f"[Sistema] Nenhum processo encontrado aberto na porta {port}")
 
     @staticmethod
-    def clean_beas_temp():
-        """Limpa a pasta C:\\ProgramData\\beas\\temp em caso de falha."""
-        temp_dir = r"C:\ProgramData\beas\temp"
-        if not os.path.exists(temp_dir):
-            return
-            
-        logger.warning(f"[Sistema] Limpando diretório temporário: {temp_dir}")
-        try:
-            for item in os.listdir(temp_dir):
-                item_path = os.path.join(temp_dir, item)
-                try:
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        os.unlink(item_path)
-                    elif os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                except Exception as e:
-                    logger.debug(f"[Sistema] Erro ao deletar {item_path}: {e}")
-            logger.info(f"[Sistema] Limpeza do {temp_dir} concluída com sucesso.")
-        except Exception as e:
-            logger.error(f"[Sistema] Erro crítico ao limpar {temp_dir}: {e}")
-
-    @staticmethod
-    def _start_service_with_retry(service_name: str):
-        """Inicia o serviço e, se falhar, limpa o temp do beas e tenta de novo."""
-        logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço: {service_name}")
-        subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Aguarda até 5 segundos para confirmar se subiu
-        started = False
-        for _ in range(5):
-            try:
-                if psutil.win_service_get(service_name).status() == 'running':
-                    started = True
-                    break
-            except Exception:
-                pass
-            time.sleep(1)
-            
-        if not started:
-            logger.error(f"[{service_name}] [SC] ❌ Falha detectada ao iniciar. Limpando temp...")
-            SystemMonitor.clean_beas_temp()
-            
-            logger.info(f"[{service_name}] [SC] ▶️ Tentando iniciar serviço novamente após limpeza...")
-            subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            for _ in range(5):
-                try:
-                    if psutil.win_service_get(service_name).status() == 'running':
-                        logger.info(f"[{service_name}] [SC] ✅ Serviço iniciado com sucesso após limpeza!")
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
-
-    @staticmethod
     def check_multiple_pids(service_name: str) -> bool:
         """
         Verifica para cada beasService se existe mais de um PID no Windows.
-        Se tiver mais de um PID, usa taskkill para matá-los e depois inicia o serviço novamente.
+        Se tiver mais de um PID, usa taskkill em todos os PIDs e depois inicia o serviço novamente.
+        Retorna True se realizou as ações, False caso contrário.
         """
         try:
             service = psutil.win_service_get(service_name)
@@ -199,13 +146,46 @@ class SystemMonitor:
                     cmd_str = " ".join(p_cmdline)
                     cmd_str_clean = cmd_str.replace('"', '').replace("'", "").strip().lower()
                     
-                    exe_name = os.path.basename(p_exe).lower()
+                    # Regra para associar o processo a este serviço de forma EXATA
+                    # 1. O nome do serviço é uma correspondência exata em algum parâmetro da linha de comando
+                    # 2. A linha de comando limpa é idêntica ao binpath limpo
+                    # 3. Ambos (cmdline e binpath) são estritamente apenas o executável
                     
-                    if service_name.lower() in cmd_str_clean or binpath_clean in cmd_str_clean:
+                    is_exact_match = False
+                    target_svc = service_name.lower()
+                    
+                    for arg in p_cmdline:
+                        arg_lower = arg.lower()
+                        if arg_lower == target_svc:
+                            is_exact_match = True
+                            break
+                        # Trata casos como -service=beasService_1 ou servermodus=beasService10
+                        if '=' in arg_lower:
+                            if target_svc in arg_lower.split('='):
+                                is_exact_match = True
+                                break
+                        # Trata casos como -service:beasService_1
+                        if ':' in arg_lower and len(arg_lower) > 2 and not arg_lower[1] == ':': # ignorando C:\
+                            if target_svc in arg_lower.split(':'):
+                                is_exact_match = True
+                                break
+
+                    # Match pelo binpath também
+                    matched = False
+                    if is_exact_match:
+                        matched = True
+                    elif p_exe.lower() == exe_path.lower() and cmd_str_clean == binpath_clean:
+                        matched = True
+                    elif p_exe.lower() == exe_path.lower() and cmd_str_clean == exe_path.lower() and binpath_clean == exe_path.lower():
+                        matched = True
+                        
+                    if matched:
+                        exe_name = p_exe.split('\\')[-1].lower() if p_exe else "unknown.exe"
                         matching_processes[p.info['pid']] = exe_name
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
             
+            # Verifica se há executáveis duplicados (focado estritamente no beas.exe conforme solicitado)
             from collections import Counter
             exe_counts = Counter(matching_processes.values())
             
@@ -218,18 +198,11 @@ class SystemMonitor:
                     logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização no PID {pid} via taskkill...")
                     subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
+                # Garante o stop via sc apenas por desencargo
                 subprocess.run(["sc", "stop", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Aguarda liberação do SO antes do start
-                for _ in range(10):
-                    try:
-                        if psutil.win_service_get(service_name).status() == 'stopped':
-                            break
-                    except Exception:
-                        pass
-                    time.sleep(1)
-
-                SystemMonitor._start_service_with_retry(service_name)
+                logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço novamente: {service_name}")
+                subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return True
                 
         except Exception as e:
@@ -249,23 +222,15 @@ class SystemMonitor:
                 logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização no PID {pid} via taskkill...")
                 subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                logger.info(f"[{service_name}] [Monitor] 🤷‍♂️ Serviço não possuía PID ativo (já parado).")
+                logger.info(f"[{service_name}] [Monitor] ℹ️ Serviço não possuía PID ativo (já parado).")
                 
+            # Garante o STOP via SC apenas por desencargo de consciência
             subprocess.run(["sc", "stop", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Smart-Wait: Aguarda até o serviço de fato ser reportado como 'stopped' pelo Windows
-            for _ in range(10):
-                try:
-                    if psutil.win_service_get(service_name).status() == 'stopped':
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
-                
         except Exception as e:
             logger.error(f"[{service_name}] [Monitor] ❌ Erro ao obter PID para TASKKILL: {e}")
 
-        SystemMonitor._start_service_with_retry(service_name)
+        logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço: {service_name}")
+        subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     @staticmethod
     def disable_service(service_name: str):
@@ -368,29 +333,30 @@ class BeasMonitor:
             with db_client.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute('SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?', (schema,))
+                # Verifica se o schema realmente existe na base antes de apontar
+                cursor.execute(f"SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = '{schema}'")
                 if cursor.fetchone()[0] == 0:
                     logger.error(f"[{service}] [Atividades] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
                     SystemMonitor.disable_service(service)
                     return
                     
-                cursor.execute(f'SET SCHEMA "{schema}";')
+                cursor.execute(f"SET SCHEMA {schema};")
                 cursor.execute("""
                     SELECT COUNT(1)
                     FROM "BEAS_SYS_SERVER"
-                    WHERE "BEZEICHNUNG" = ?;
-                """, ('BEAS - Gerenciamento de Serviço',))
+                    WHERE "BEZEICHNUNG" = 'BEAS - Gerenciamento de Serviço';
+                """)
                 valida = cursor.fetchone()[0]
                 
                 if valida > 0:
                     cursor.execute("""
                         SELECT TO_INT(SECONDS_BETWEEN("STATISTIC_LASTSTART", CURRENT_TIMESTAMP) / 60) AS DIF_MINUTOS 
                         FROM "BEAS_SYS_SERVER"
-                        WHERE "BEZEICHNUNG" = ?;
-                    """, ('BEAS - Gerenciamento de Serviço',))
+                        WHERE "BEZEICHNUNG" = 'BEAS - Gerenciamento de Serviço';
+                    """)
                     diff = cursor.fetchone()[0]
                     if diff >= 2:
-                        logger.warning(f"[{service}] [Atividades] Última execução >= 2 min ({diff} min). Reiniciando {service} em {schema}...")
+                        logger.warning(f"[{service}] [Atividades]  Última execução >= 2 min ({diff} min). Reiniciando {service} em {schema}...")
                         SystemMonitor.restart_service(service)
                     else:
                         if diff < 0:
@@ -418,19 +384,21 @@ class BeasMonitor:
             with db_client.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute('SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?', (schema,))
+                # Verifica se o schema realmente existe na base antes de interagir
+                cursor.execute(f"SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = '{schema}'")
                 if cursor.fetchone()[0] == 0:
                     logger.error(f"[{service}] [Beas Common] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
                     SystemMonitor.disable_service(service)
                     return
                 
-                cursor.execute('SELECT COUNT(1) FROM "SYS"."TABLES" WHERE "SCHEMA_NAME" = ? AND "TABLE_NAME" = ?', (schema, 'SPS_BEAS_COMMON_HEARTBEAT'))
+                # Check tables
+                cursor.execute(f"SELECT COUNT(1) FROM \"SYS\".\"TABLES\" WHERE \"SCHEMA_NAME\" = '{schema}' AND \"TABLE_NAME\" = 'SPS_BEAS_COMMON_HEARTBEAT'")
                 cnt = cursor.fetchone()[0]
                 
-                cursor.execute('SELECT COUNT(1) FROM "SYS"."PROCEDURES" WHERE "SCHEMA_NAME" = ? AND "PROCEDURE_NAME" = ?', (schema, 'SP_SPS_BEAS_COMMON_VALIDATION'))
+                cursor.execute(f"SELECT COUNT(1) FROM \"SYS\".\"PROCEDURES\" WHERE \"SCHEMA_NAME\" = '{schema}' AND \"PROCEDURE_NAME\" = 'SP_SPS_BEAS_COMMON_VALIDATION'")
                 cnt2 = cursor.fetchone()[0]
                 
-                cursor.execute(f'SET SCHEMA "{schema}";')
+                cursor.execute(f"SET SCHEMA {schema};")
                 
                 if cnt2 == 0:
                     cursor.execute("""
@@ -455,22 +423,22 @@ class BeasMonitor:
                     conn.commit()
                     logger.warning(f"[{service}] [Beas Common] Tabela SPS_BEAS_COMMON_HEARTBEAT criada com sucesso em {schema}")
 
-                cursor.execute(f'SELECT TO_INT(SECONDS_BETWEEN("LastUpdate", CURRENT_TIMESTAMP) / 60) AS DifMinutos FROM "{schema}"."SPS_BEAS_COMMON_HEARTBEAT" WHERE ID = 1;')
+                # Valida heartbeat
+                cursor.execute(f'SELECT TO_INT(SECONDS_BETWEEN("LastUpdate", CURRENT_TIMESTAMP) / 60) AS DifMinutos FROM {schema}.SPS_BEAS_COMMON_HEARTBEAT WHERE ID = 1;')
                 heartbeat = cursor.fetchone()[0]
                 
-                cursor.execute(f'CALL "{schema}"."SP_SPS_BEAS_COMMON_VALIDATION"();')
-                
-                cursor.execute('DELETE FROM "BEAS_COMMON_INPUT" WHERE "PARAMETER5" = ? AND "Closed" = ?', ('SPS Common Check', 1))
+                cursor.execute(f'CALL {schema}.SP_SPS_BEAS_COMMON_VALIDATION();')
+                cursor.execute(f'DELETE FROM {schema}."BEAS_COMMON_INPUT" WHERE PARAMETER5 = \'SPS Common Check\' AND "Closed" = 1')
                 
                 if heartbeat > limit:
                     logger.warning(f"[{service}] [Beas Common] Common travada há ({heartbeat} min). Reiniciando e rodando UPDATE em {schema}...")
                     SystemMonitor.restart_service(service)
-                    cursor.execute("""
-                        UPDATE "BEAS_COMMON_INPUT"
+                    cursor.execute(f"""
+                        UPDATE {schema}."BEAS_COMMON_INPUT"
                         SET "Closed" = 0
                         WHERE "TimeLife" BETWEEN (SELECT "LastUpdate" FROM "SPS_BEAS_COMMON_HEARTBEAT" WHERE ID = 1) AND CURRENT_TIMESTAMP
-                        AND "Closed" = 1 AND "PARAMETER5" = ?
-                    """, ('SPS Common Check',))
+                        AND "Closed" = 1 AND "PARAMETER5" = 'SPS Common Check'
+                    """)
                     conn.commit()
                     logger.info(f"[{service}] [Beas Common] Update em BEAS_COMMON_INPUT executado com sucesso em {schema}")
                 else:

@@ -5,6 +5,7 @@ from logger import logger
 
 @dataclass
 class BeasService:
+    """Representa e tipa os dados de um serviço BEAS obtidos via Regedit."""
     service_name: str
     display_name: Optional[str] = None
     html_indexname: Optional[int] = None
@@ -16,36 +17,28 @@ class BeasService:
     web_ip: Optional[str] = None
 
 class RegistryScanner:
+    """Isola a leitura do Regedit do Windows para obtenção das configurações dos serviços BEAS."""
     
     @staticmethod
     def get_beas_services() -> list[BeasService]:
         services = []
         path = r"SYSTEM\CurrentControlSet\Services"
-        
-        all_found = []
 
         try:
-            access = winreg.KEY_READ | winreg.KEY_WOW64_64KEY
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
                 i = 0
                 while True:
                     try:
                         subkey_name = winreg.EnumKey(key, i)
-                        all_found.append(subkey_name)
                         i += 1
 
                         if subkey_name.lower().startswith("beasservice"):
                             svc = RegistryScanner._read_service_info(key, subkey_name)
                             services.append(svc)
-                    except OSError as e:
-                        if e.winerror == 259:
-                            break
-                        else:
-                            logger.error(f"[Registry] Erro iterando chave {i}: {e}")
-                            break
-                            
+                    except OSError:
+                        break  # Fim das subkeys
         except Exception as e:
-            logger.error(f"[Registry] Erro geral ao ler o registro: {e}")
+            logger.error(f"[Registry] ❌ Erro geral ao ler o registro: {e}")
 
         return services
 
@@ -63,8 +56,7 @@ class RegistryScanner:
         web_ip = None
 
         try:
-            access = winreg.KEY_READ | winreg.KEY_WOW64_64KEY
-            with winreg.OpenKey(parent_key, subkey_name, 0, access) as subkey:
+            with winreg.OpenKey(parent_key, subkey_name) as subkey:
                 for field in info.keys():
                     try:
                         value, _ = winreg.QueryValueEx(subkey, field)
@@ -72,6 +64,7 @@ class RegistryScanner:
                     except FileNotFoundError:
                         pass
                 
+                # Tratar projectfolder para obter web_ip se necessário futuramente, mas hoje extraí o IP
                 try:
                     pf, _ = winreg.QueryValueEx(subkey, "projectfolder")
                     if pf:
@@ -80,8 +73,9 @@ class RegistryScanner:
                     pass
 
         except Exception as e:
-            pass
+            logger.debug(f"[Registry] Erro ao ler chave {subkey_name}: {e}")
 
+        # Tratamento seguro da porta html_indexname para integer (essencial para binds socket)
         html_indexname_int = None
         if info["html_indexname"]:
             try:
