@@ -4,6 +4,7 @@ import socket
 import psutil
 import time
 import requests
+import shutil
 from ping3 import ping
 from logger import logger
 from database import db_client
@@ -110,6 +111,61 @@ class SystemMonitor:
             logger.info(f"[Sistema] Nenhum processo encontrado aberto na porta {port}")
 
     @staticmethod
+    def clean_beas_temp():
+        """Limpa a pasta C:\\ProgramData\\beas\\temp em caso de falha."""
+        temp_dir = r"C:\ProgramData\beas\temp"
+        if not os.path.exists(temp_dir):
+            return
+            
+        logger.warning(f"[Sistema] Limpando diretório temporário: {temp_dir}")
+        try:
+            for item in os.listdir(temp_dir):
+                item_path = os.path.join(temp_dir, item)
+                try:
+                    if os.path.isfile(item_path) or os.path.islink(item_path):
+                        os.unlink(item_path)
+                    elif os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                except Exception as e:
+                    logger.debug(f"[Sistema] Erro ao deletar {item_path}: {e}")
+            logger.info(f"[Sistema] Limpeza do {temp_dir} concluída com sucesso.")
+        except Exception as e:
+            logger.error(f"[Sistema] Erro crítico ao limpar {temp_dir}: {e}")
+
+    @staticmethod
+    def _start_service_with_retry(service_name: str):
+        """Inicia o serviço e, se falhar, limpa o temp do beas e tenta de novo."""
+        logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço: {service_name}")
+        subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Aguarda até 5 segundos para confirmar se subiu
+        started = False
+        for _ in range(5):
+            try:
+                if psutil.win_service_get(service_name).status() == 'running':
+                    started = True
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+            
+        if not started:
+            logger.error(f"[{service_name}] [SC] ❌ Falha detectada ao iniciar. Limpando temp...")
+            SystemMonitor.clean_beas_temp()
+            
+            logger.info(f"[{service_name}] [SC] ▶️ Tentando iniciar serviço novamente após limpeza...")
+            subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            for _ in range(5):
+                try:
+                    if psutil.win_service_get(service_name).status() == 'running':
+                        logger.info(f"[{service_name}] [SC] ✅ Serviço iniciado com sucesso após limpeza!")
+                        break
+                except Exception:
+                    pass
+                time.sleep(1)
+
+    @staticmethod
     def check_multiple_pids(service_name: str) -> bool:
         """
         Verifica para cada beasService se existe mais de um PID no Windows.
@@ -169,12 +225,14 @@ class SystemMonitor:
                 
                 # Aguarda liberação do SO antes do start
                 for _ in range(10):
-                    if psutil.win_service_get(service_name).status() == 'stopped':
-                        break
+                    try:
+                        if psutil.win_service_get(service_name).status() == 'stopped':
+                            break
+                    except Exception:
+                        pass
                     time.sleep(1)
 
-                logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço novamente: {service_name}")
-                subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                SystemMonitor._start_service_with_retry(service_name)
                 return True
                 
         except Exception as e:
@@ -206,15 +264,17 @@ class SystemMonitor:
             # Smart-Wait: Aguarda até o serviço de fato ser reportado como 'stopped' pelo Windows
             # para evitar que suba novamente com a porta ainda engasgada
             for _ in range(10):
-                if psutil.win_service_get(service_name).status() == 'stopped':
-                    break
+                try:
+                    if psutil.win_service_get(service_name).status() == 'stopped':
+                        break
+                except Exception:
+                    pass
                 time.sleep(1)
                 
         except Exception as e:
             logger.error(f"[{service_name}] [Monitor] ❌ Erro ao gerenciar serviço: {e}")
 
-        logger.info(f"[{service_name}] [SC] ▶️ Iniciando serviço: {service_name}")
-        subprocess.run(["sc", "start", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        SystemMonitor._start_service_with_retry(service_name)
 
     @staticmethod
     def disable_service(service_name: str):
@@ -319,12 +379,6 @@ class BeasMonitor:
         try:
             with db_client.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # Parametrização Segura (Valores de filtro)
-                # NOTA: O HANA exige que Identificadores de Objetos (Schemas/Tables) 
-                # sejam formatados com aspas duplas de segurança na query SQL ("SCHEMA"."TABELA") 
-                # para evitar syntax errors com caracteres especiais, já que identificadores
-                # não podem ser parametrizados nativamente por '?' em drivers de banco.
                 
                 cursor.execute('SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = ?', (schema,))
                 if cursor.fetchone()[0] == 0:
