@@ -99,8 +99,8 @@ class SystemMonitor:
                 pid = conn.pid
                 if pid:
                     try:
-                        p = psutil.Process(pid)
-                        p.kill()
+                        logger.warning(f"[Sistema] Forçando finalização no PID {pid} (Porta {port}) via taskkill...")
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         killed.append(pid)
                     except Exception as e:
                         logger.error(f"[Sistema] Erro ao matar PID {pid} na porta {port}: {e}")
@@ -169,7 +169,7 @@ class SystemMonitor:
     def check_multiple_pids(service_name: str) -> bool:
         """
         Verifica para cada beasService se existe mais de um PID no Windows.
-        Se tiver mais de um PID, usa psutil para matá-los e depois inicia o serviço novamente.
+        Se tiver mais de um PID, usa taskkill para matá-los e depois inicia o serviço novamente.
         """
         try:
             service = psutil.win_service_get(service_name)
@@ -215,11 +215,8 @@ class SystemMonitor:
                 pids_to_kill = list(matching_processes.keys())
                 logger.warning(f"[{service_name}] [Monitor] ⚠️ Foram detectados processos duplicados para o serviço: {dict(exe_counts)}")
                 for pid in pids_to_kill:
-                    logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização nativa no PID {pid} via psutil...")
-                    try:
-                        psutil.Process(pid).kill()
-                    except psutil.NoSuchProcess:
-                        pass
+                    logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização no PID {pid} via taskkill...")
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 subprocess.run(["sc", "stop", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
@@ -249,20 +246,14 @@ class SystemMonitor:
             pid = service.pid()
             
             if pid and pid > 0:
-                logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização nativa no PID {pid} via psutil...")
-                try:
-                    p = psutil.Process(pid)
-                    p.kill()
-                    p.wait(timeout=3)
-                except (psutil.NoSuchProcess, psutil.TimeoutExpired, psutil.AccessDenied):
-                    pass
+                logger.warning(f"[{service_name}] [Monitor] 🗡️ Forçando finalização no PID {pid} via taskkill...")
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 logger.info(f"[{service_name}] [Monitor] 🤷‍♂️ Serviço não possuía PID ativo (já parado).")
                 
             subprocess.run(["sc", "stop", service_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             # Smart-Wait: Aguarda até o serviço de fato ser reportado como 'stopped' pelo Windows
-            # para evitar que suba novamente com a porta ainda engasgada
             for _ in range(10):
                 try:
                     if psutil.win_service_get(service_name).status() == 'stopped':
@@ -272,7 +263,7 @@ class SystemMonitor:
                 time.sleep(1)
                 
         except Exception as e:
-            logger.error(f"[{service_name}] [Monitor] ❌ Erro ao gerenciar serviço: {e}")
+            logger.error(f"[{service_name}] [Monitor] ❌ Erro ao obter PID para TASKKILL: {e}")
 
         SystemMonitor._start_service_with_retry(service_name)
 
@@ -284,11 +275,8 @@ class SystemMonitor:
             service = psutil.win_service_get(service_name)
             pid = service.pid()
             if pid and pid > 0:
-                logger.warning(f"[{service_name}] [Monitor] 🗡️ Matando PID {pid} via psutil antes de desativar...")
-                try:
-                    psutil.Process(pid).kill()
-                except psutil.NoSuchProcess:
-                    pass
+                logger.warning(f"[{service_name}] [Monitor] 🗡️ Matando PID {pid} via taskkill antes de desativar...")
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 

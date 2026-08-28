@@ -2,6 +2,8 @@ import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import datetime
+import time
+import re
 
 class PrependDailyFileHandler(logging.Handler):
     def __init__(self, log_dir, base_name="monitor", backup_count=7, encoding="utf-8"):
@@ -35,19 +37,25 @@ class PrependDailyFileHandler(logging.Handler):
             msg = self.format(record) + "\n"
             log_file = self._get_current_file()
             
-            old_content = ""
-            if os.path.exists(log_file):
-                with open(log_file, "r", encoding=self.encoding) as f:
-                    old_content = f.read()
+            # Tenta até 5 vezes gravar no arquivo (evita lock de concorrência no Windows)
+            for attempt in range(5):
+                try:
+                    old_content = ""
+                    if os.path.exists(log_file):
+                        with open(log_file, "r", encoding=self.encoding) as f:
+                            old_content = f.read()
 
-            with open(log_file, "w", encoding=self.encoding) as f:
-                f.write(msg + old_content)
+                    with open(log_file, "w", encoding=self.encoding) as f:
+                        f.write(msg + old_content)
+                    break
+                except PermissionError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.2)
 
             self._cleanup_old_logs()
         except Exception:
             self.handleError(record)
-
-import re
 
 class TableFormatter(logging.Formatter):
     def format(self, record):
@@ -68,7 +76,7 @@ class TableFormatter(logging.Formatter):
             emoji = "ℹ️"
             
         # 2. Desinfeta as mensagems antigas que já possuíam emojis hardcoded pelos desenvolvedores
-        for e in ["✅", "⚠️", "❌", "🛑", "🔄"]:
+        for e in ["✅", "⚠️", "❌", "🛑", "🔄", "🗡️", "▶️", "🤷‍♂️"]:
             original_msg = original_msg.replace(e, "")
             
         original_msg = original_msg.strip()
