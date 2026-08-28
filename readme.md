@@ -39,5 +39,5 @@ SPSBeasMonitor/
 
 Execute via cmd como administrador:
 ```cmd
-schtasks /create /sc minute /mo 1 /tn "SPSBeasMonitor" /tr "powershell.exe -ExecutionPolicy Bypass -File C:\SPS\Olga\SPSBeasMonitor\run_app.ps1"
+schtasks /create /sc minute /mo 1 /tn "SPSBeasMonitor" /tr "powershell.exe -ExecutionPolicy Bypass -File C:\SPSBeasMonitor\run_app.ps1"
 ```
