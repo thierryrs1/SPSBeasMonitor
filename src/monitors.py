@@ -355,7 +355,7 @@ class BeasMonitor:
                         SELECT
                             (SELECT IFNULL(MAX("NR"), 0) + 1 FROM "BEAS_SYS_SERVER") AS "NR",
                             'BEAS - Gerenciamento de Serviço' AS "BEZEICHNUNG",
-                            NULL AS "DESCRIPTIONID",
+                            'Gerenciamento de Serviços para o SPSBeasMonitor' AS "DESCRIPTIONID",
                             1 AS "AKTIV",
                             'XXXXXXX' AS "WOCHENTAG",
                             0 AS "UHRZEIT",

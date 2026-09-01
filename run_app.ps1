@@ -3,4 +3,4 @@ $workingDir = $PSScriptRoot
 Set-Location $workingDir
 
 # Executa o script Python diretamente usando o Python global do sistema
-python app.py
+python src/app.py
