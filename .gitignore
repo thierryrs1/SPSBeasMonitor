@@ -25,3 +25,6 @@ __pycache__/
 venv/
 env/
 *.sql
+SPSBeasMonitor.exe
+SPSBeasMonitor_Release_v1.0.zip
+
