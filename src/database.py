@@ -22,6 +22,8 @@ class DatabaseClient:
             if ":" in self.server:
                 host, port_str = self.server.split(":")
                 port = int(port_str)
+            else:
+                port = int(port) if port else 30015
             
             conn = dbapi.connect(
                 address=host,
@@ -29,10 +31,12 @@ class DatabaseClient:
                 user=self.user,
                 password=self.password
             )
-            yield conn
         except Exception as e:
             logger.error(f"[Database] ❌ Erro ao conectar no HANA ({self.server}): {e}")
             raise
+            
+        try:
+            yield conn
         finally:
             if conn:
                 try:

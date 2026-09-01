@@ -408,11 +408,11 @@ class BeasMonitor:
                 # apontar
                 cursor.execute(
                     f"SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = '{schema}'")
-                if cursor.fetchone()[0]  # type: ignore == 0:
-                logger.error(
-                    f"[{service}] [Atividades] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
-                SystemMonitor.disable_service(service)
-                return
+                if cursor.fetchone()[0] == 0:  # type: ignore
+                    logger.error(
+                        f"[{service}] [Atividades] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
+                    SystemMonitor.disable_service(service)
+                    return
 
                 cursor.execute(f"SET SCHEMA {schema};")
                 cursor.execute("""
@@ -546,11 +546,11 @@ class BeasMonitor:
                 # interagir
                 cursor.execute(
                     f"SELECT COUNT(1) FROM SYS.SCHEMAS WHERE SCHEMA_NAME = '{schema}'")
-                if cursor.fetchone()[0]  # type: ignore == 0:
-                logger.error(
-                    f"[{service}] [Beas Common] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
-                SystemMonitor.disable_service(service)
-                return
+                if cursor.fetchone()[0] == 0:  # type: ignore
+                    logger.error(
+                        f"[{service}] [Beas Common] Banco de Dados '{schema}' inexistente no HANA. Desativando o serviço...")
+                    SystemMonitor.disable_service(service)
+                    return
 
                 # Check tables
                 cursor.execute(
