@@ -53,7 +53,7 @@ def main():
             beas_monitor.check_system_server(svc)
             
         if config.CHECK_COMMON:
-            beas_monitor.check_common_heartbeat(svc, int(config.COMMON_LIMIT_TIME))
+            beas_monitor.check_common_heartbeat(svc, config.COMMON_LIMIT_TIME)
 
     logger.info("Rotina de checagem finalizada.")
     logger.info("-" * 100)

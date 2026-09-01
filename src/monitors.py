@@ -447,7 +447,7 @@ class BeasMonitor:
             
         schema = svc.mssql_database
         service = svc.service_name
-        limit = int(config.COMMON_LIMIT_TIME)
+        limit = config.COMMON_LIMIT_TIME
 
         if not schema:
             logger.error(f"[{service}] [Beas Common] Nenhum schema definido (mssql_database vazio).")
