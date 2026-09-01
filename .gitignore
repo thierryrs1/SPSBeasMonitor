@@ -1,19 +1,32 @@
-Ôªø# Ignorar arquivos de log
+# Ignorar arquivos de log
 *.log
+logs/
+deploy/logs/
 
-# Ignorar arquivos tempor√°rios
+# Arquivos de estado e build locais
+state_last_restart.txt
+build/
+dist/
+*.spec
+
+# Extensıes e pacotes de release
+*.exe
+*.zip
+*.sql
+
+# Ignorar arquivos tempor·rios
 *.tmp
 *.bak
 *.swp
 
-# Ignorar configura√ß√µes locais / IDEs
+# Ignorar configuraÁıes locais / IDEs
 .vscode/
 .vs/
 *.suo
 *.user
 *.sublime-workspace
 
-# Credenciais / Vari√°veis de ambiente
+# Credenciais / Vari·veis de ambiente
 .env
 *.secret
 
@@ -24,7 +37,3 @@ __pycache__/
 .venv/
 venv/
 env/
-*.sql
-SPSBeasMonitor.exe
-SPSBeasMonitor_Release_v1.0.zip
-
