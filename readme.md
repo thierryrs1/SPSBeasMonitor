@@ -1,69 +1,82 @@
-# SPS Beas Monitor 🚀
+﻿# SPS Beas Monitor 🚀
 
-Projeto automatizado e de alta performance para monitoramento e reinício inteligente de serviços BEAS em ambientes SAP HANA. 
+Solução de alta performance, standalone e automatizada para o monitoramento e reinício inteligente de serviços BEAS em ambientes SAP HANA. 
 
-O sistema realiza validações ativas na infraestrutura, detecta serviços travados em tempo real (Heartbeat do BEAS Common), valida a comunicação do BSL (OData), monitora Portais Web e reinicia os serviços afetados caso necessário, diretamente via processos e banco de dados.
-
----
-
-## 🌟 Principais Recursos e Otimizações
-
-- **Conexão Singleton (Fail-Fast):** O script compartilha de forma inteligente uma única conexão com o banco SAP HANA. Se o banco cair, o script pula as checagens imediatamente, impedindo travamentos de 15 minutos e reduzindo a checagem geral para cerca de 1 a 2 segundos.
-- **Leitura Nativa 64-bits:** Módulo de registro integrado que ignora nativamente o WOW6432Node do Windows, garantindo que os serviços do BEAS sejam identificados perfeitamente pelo Python, seja em 32-bits ou 64-bits.
-- **Checagem OData (BSL):** Realiza login autenticado nas portas do BSL.
-- **Restart Automático de Serviços (Taskkill):** Detecta o PID travado e realiza a derrubada forçada, reiniciando o serviço pelo Windows e alimentando a tabela `BEAS_COMMON_INPUT`.
-- **Monitoramento de RAM:** Checagem e log inteligente de consumo de memória.
+Este sistema foi arquitetado para realizar validações ativas na infraestrutura, identificar serviços travados, matar processos duplicados ("zumbis"), checar portas OData (BSL) e portais Web e fazer o restart autônomo sem intervenção humana.
 
 ---
 
-## 📂 Estrutura do Projeto
+## 💡 Principais Funcionalidades e Inovações
 
-```text
+- **Executável Standalone (.exe):** Agora totalmente empacotado em um único binário (SPSBeasMonitor.exe), não necessita da instalação prévia do Python, pip ou bibliotecas (como hdbcli, psutil, etc) nas máquinas dos clientes.
+- **Fail-Fast com Singleton HANA:** Apenas uma conexão é compartilhada por toda a execução. Se o banco de dados cair, o monitor aborta imediatamente sem gargalos, concluindo a execução em milissegundos.
+- **Smart Restart em Massa (HANA Startup):** O monitor identifica quando o servidor HANA acabou de reiniciar e aguarda 5 minutos de "aquecimento" antes de disparar um restart limpo e em massa de todos os serviços BEAS.
+- **Limpeza de Múltiplos PIDs:** Rastreador de processos do Windows que detecta e finaliza múltiplos processos (beas.exe) apontando para o mesmo serviço, matando-os silenciosamente.
+- **Leitura do Registro do Windows (Native):** Identifica automaticamente as senhas (html_comm) e configurações extraindo dados direto do Regedit.
+
+---
+
+## 📁 Estrutura do Repositório
+
+`	ext
 SPSBeasMonitor/
-├── .env.example        # Arquivo de modelo das credenciais (DB, Portas, etc)
-├── app.py              # Script orquestrador de checagens (Entrypoint)
-├── config.py           # Lê as credenciais do arquivo ".env"
-├── database.py         # Controla o acesso ao HANA (Singleton) evitando timeouts múltiplos
-├── registry.py         # Isola leitura das chaves do Regedit (bypass WOW6432Node)
-├── monitors.py         # Detém a inteligência de negócios (Ping, oData, SQL Execution)
-├── logger.py           # Configura os logs (cria rotações semanais/mensais nativas)
-└── run_app.ps1         # Script PowerShell de gatilho para o Task Scheduler do Windows
-```
+├── deploy/                     # 📦 PACOTE DE DISTRIBUIÇÃO (Tudo que o cliente precisa)
+│   ├── .env.example            # Modelo de variáveis de ambiente
+│   ├── install.ps1             # Script que instala o serviço automaticamente
+│   ├── SPSBeasMonitor.exe      # Executável gerado
+│   └── SPSBeasMonitor_Release_v1.0.X.zip  # Arquivo pronto pra publicar no GitHub
+├── src/                        # 💻 CÓDIGO-FONTE PYTHON
+│   ├── app.py                  # Entrypoint do sistema
+│   ├── config.py               # Manipulação de variáveis .env e tipagem
+│   ├── database.py             # Instância Singleton do SAP HANA
+│   ├── logger.py               # Geração e Rotação de logs semanais
+│   ├── monitors.py             # Regras de Negócio (OData, Ping, Atividades, Common)
+│   └── registry.py             # Leitor de chaves do Windows
+└── .gitignore                  # Arquivo para não sujar o Github com builds locais
+`
 
 ---
 
-## 🛠️ Requisitos
+## ⚙️ Instalação no Cliente
 
-- Python 3.13+
-- Dependências Externas (instale via pip no ambiente do servidor):
-  ```cmd
-  pip install ping3 hdbcli psutil requests python-dotenv
-  ```
-- Serviços BEAS instalados e configurados no Registro Local do Windows (Aviso: **O script requer privilégios de Administrador** para ler o status dos serviços via `psutil`).
+A instalação nunca foi tão fácil. **Você só precisa dos arquivos da pasta deploy/**.
 
----
+1. Crie uma pasta no servidor do cliente (Ex: C:\SPSBeasMonitor).
+2. Extraia o conteúdo do arquivo .zip da última Release nela.
+3. Clique com o botão direito no arquivo **install.ps1** e selecione **Executar com o PowerShell** (Pode exigir privilégios de Administrador).
 
-## 🚀 Instalação e Configuração
-
-1. Clone o repositório no seu servidor (Recomendado clonar diretamente em `C:\SPSBeasMonitor`):
-   ```cmd
-   git clone https://github.com/thierryrs1/SPSBeasMonitor.git C:\SPSBeasMonitor
-   cd C:\SPSBeasMonitor
-   ```
-
-2. Configure suas variáveis de ambiente:
-   - Faça uma cópia do arquivo `.env.example` e renomeie para `.env`
-   - Preencha suas credenciais do banco HANA e as *flags* de ativação.
-
-3. Agende a execução automática no Windows:
-   Abra o **CMD como Administrador** e execute:
-   ```cmd
-   schtasks /create /sc minute /mo 1 /tn "SPSBeasMonitor" /tr "powershell.exe -ExecutionPolicy Bypass -File C:\SPSBeasMonitor\run_app.ps1" /rl HIGHEST
-   ```
-   *(A flag `/rl HIGHEST` garante a permissão de administrador na tarefa agendada).*
+**O script de instalação fará 3 coisas:**
+- Vai clonar o .env.example para .env e abrir o bloco de notas para você preencher os dados do HANA.
+- Vai criar automaticamente a Tarefa no **Agendador de Tarefas do Windows**, agendada para rodar silenciosamente a cada 1 minuto com privilégios máximos.
+- Vai executar o monitor pela primeira vez e criar a pasta logs/.
 
 ---
 
-## 📄 Licença e Uso
+## 🛠️ Variáveis de Ambiente (.env)
 
-Sistema desenvolvido para operação interna de monitoramento de instâncias BEAS e SAP HANA.
+O comportamento do executável é guiado pelas variáveis abaixo:
+`env
+DBTYPE=HANA
+DB_SERVER=ip_do_hana:30015
+DB_USERNAME=usuario
+DB_PASSWORD=senha
+DB_PORT=30015
+
+COMMON_LIMIT_TIME=10             # Minutos para tolerar travamento no Heartbeat Common
+CHECK_BSL=true                   # Liga/Desliga check de portal OData BSL
+CHECK_WEB=true                   # Liga/Desliga check de portal Web Apps (Ping)
+CHECK_SERVER=true                # Liga/Desliga check de Atividades do Beas (service_order=1)
+CHECK_MULTIPLE_PIDS=true         # Liga/Desliga detecção de processos zumbis
+`
+
+---
+
+## 📝 Regras de Negócio Importantes
+
+* **Beas - Gerenciamento de Serviço:** O Monitor de "Atividades" SÓ atua nos serviços BEAS onde a chave service_order está definida como "1" no Regedit. Se for "1", o monitor garante a existência da atividade no HANA, forçando um CURRENT_TIMESTAMP inicial e reiniciando o serviço se a atividade não for executada pelo Beas a cada 2~5 minutos.
+* **Beas Common:** Semelhante ao script anterior, atua verificando o Heartbeat caso service_common seja "1".
+* **Portas Web e BSL:** Utilizam service_html = "1".
+* O executável foi fortemente blindado utilizando **Pyright** e segue a formatação rigorosa **PEP-8**.
+
+---
+Feito com ☕ e focado em estabilidade.

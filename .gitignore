@@ -1,4 +1,4 @@
-# Ignorar arquivos de log
+ï»¿# Ignorar arquivos de log
 *.log
 logs/
 deploy/logs/
@@ -9,24 +9,24 @@ build/
 dist/
 *.spec
 
-# Extensões e pacotes de release
+# Extensoes e pacotes de release
 *.exe
 *.zip
 *.sql
 
-# Ignorar arquivos temporários
+# Ignorar arquivos temporarios
 *.tmp
 *.bak
 *.swp
 
-# Ignorar configurações locais / IDEs
+# Ignorar configuracoes locais / IDEs
 .vscode/
 .vs/
 *.suo
 *.user
 *.sublime-workspace
 
-# Credenciais / Variáveis de ambiente
+# Credenciais / Variaveis de ambiente
 .env
 *.secret
 
