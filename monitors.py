@@ -348,22 +348,95 @@ class BeasMonitor:
                 """)
                 valida = cursor.fetchone()[0]
                 
-                if valida > 0:
+                if valida == 0:
+                    logger.warning(f"[{service}] [Atividades] Tabela BEAS_SYS_SERVER não possui registro para 'BEAS - Gerenciamento de Serviço' em {schema}. Inserindo registro padrão...")
                     cursor.execute("""
-                        SELECT TO_INT(SECONDS_BETWEEN("STATISTIC_LASTSTART", CURRENT_TIMESTAMP) / 60) AS DIF_MINUTOS 
-                        FROM "BEAS_SYS_SERVER"
-                        WHERE "BEZEICHNUNG" = 'BEAS - Gerenciamento de Serviço';
+                        INSERT INTO "BEAS_SYS_SERVER"
+                        SELECT
+                            (SELECT IFNULL(MAX("NR"), 0) + 1 FROM "BEAS_SYS_SERVER") AS "NR",
+                            'BEAS - Gerenciamento de Serviço' AS "BEZEICHNUNG",
+                            NULL AS "DESCRIPTIONID",
+                            1 AS "AKTIV",
+                            'XXXXXXX' AS "WOCHENTAG",
+                            0 AS "UHRZEIT",
+                            86.340 AS "BISUHRZEIT",
+                            1 AS "WIEDERHOLUNG",
+                            60 AS "WIEDERHOLUNGUNIT",
+                            NULL AS "EMPFAENGER",
+                            'S' AS "TYPID",
+                            NULL AS "PARAMETER1",
+                            NULL AS "PARAMETER2",
+                            NULL AS "EVENTSCRIPT",
+                            NULL AS "EVENTBITMAP",
+                            1 AS "SENDAS",
+                            'BEAS - Gerenciamento de Serviço' AS "Subject",
+                            NULL AS "LONGTEXT",
+                            NULL AS "KEY1NAME",
+                            0 AS "KEY1SETCLOSE",
+                            NULL AS "KEY1SCRIPT",
+                            NULL AS "KEY2NAME",
+                            0 AS "KEY2SETCLOSE",
+                            NULL AS "KEY2SCRIPT",
+                            'Close' AS "KEY3NAME",
+                            1 AS "KEY3SETCLOSE",
+                            NULL AS "KEY3SCRIPT",
+                            NULL AS "SENDUSER1",
+                            NULL AS "SENDUSER2",
+                            NULL AS "SENDUSER3",
+                            NULL AS "BaseType",
+                            NULL AS "BASENR1",
+                            NULL AS "BASENR2",
+                            NULL AS "BASENR3",
+                            NULL AS "AUSFUEHRUNG",
+                            1 AS "MAKRO_ID",
+                            NULL AS "ImportDirectory",
+                            NULL AS "ImportBackupDirectory",
+                            NULL AS "ImportDeleteFile",
+                            NULL AS "ImportDef1",
+                            NULL AS "ImportDef2",
+                            NULL AS "ImportDef3",
+                            NULL AS "ImportDef4",
+                            NULL AS "ImportDef5",
+                            NULL AS "ImportDef6",
+                            NULL AS "ImportScript",
+                            '*.*' AS "ImportFileMask",
+                            CURRENT_TIMESTAMP AS "LETZTE_AUSFUEHRUNG",
+                            NULL AS "LETZTE_MELDUNG",
+                            0 AS "STATISTIC_COUNT",
+                            0 AS "STATISTIC_TIMETOTAL",
+                            NULL AS "STATISTIC_LASTSTART",
+                            NULL AS "STATISTIC_LASTEND",
+                            0 AS "STATISTIC_LASTTIME",
+                            'S' AS "DOCUMENTFORMAT",
+                            NULL AS "DOCUMENTNAME",
+                            NULL AS "DOCUMENTVARIABLES",
+                            CURRENT_TIMESTAMP AS "ERFTSTAMP",
+                            'dba' AS "ERFUSER",
+                            CURRENT_TIMESTAMP AS "ANDTSTAMP",
+                            'dba' AS "ANDUSER"
+                        FROM DUMMY;
                     """)
-                    diff = cursor.fetchone()[0]
+                    conn.commit()
+                    logger.info(f"[{service}] [Atividades] Registro inserido com sucesso em {schema}.")
+                    
+                # Realiza a validação normal de tempo agora que garantimos que o registro existe
+                cursor.execute("""
+                    SELECT TO_INT(SECONDS_BETWEEN("STATISTIC_LASTSTART", CURRENT_TIMESTAMP) / 60) AS DIF_MINUTOS 
+                    FROM "BEAS_SYS_SERVER"
+                    WHERE "BEZEICHNUNG" = 'BEAS - Gerenciamento de Serviço';
+                """)
+                
+                # Trata possibilidade remota do select falhar mesmo após o insert
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    diff = row[0]
                     if diff >= 2:
-                        logger.warning(f"[{service}] [Atividades]  Última execução >= 2 min ({diff} min). Reiniciando {service} em {schema}...")
+                        logger.warning(f"[{service}] [Atividades] Última execução >= 2 min ({diff} min). Reiniciando {service} em {schema}...")
                         SystemMonitor.restart_service(service)
                     else:
                         if diff < 0:
                             diff = 0
                         logger.info(f"[{service}] [Atividades] Última execução validada há {diff} min em {schema}")
-                else:
-                    logger.warning(f"[{service}] [Atividades] Tabela BEAS_SYS_SERVER não possui registros para monitoramento em {schema}.")
         except Exception as e:
             logger.error(f"[{service}] [Atividades] Erro ao validar BEAS_SYS_SERVER: {e} em {schema}")
 
