@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 import socket
 import psutil
@@ -326,8 +327,6 @@ class BeasMonitor:
         schema = svc.mssql_database
         service = svc.service_name
 
-        import time
-        from src.config import config
         alive = False
         
         for attempt in range(config.NUMBER_OF_RETRIES):
