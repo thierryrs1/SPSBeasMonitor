@@ -1,4 +1,4 @@
-﻿# Ignorar arquivos de log
+# Ignorar arquivos de log
 *.log
 logs/
 deploy/logs/
@@ -7,7 +7,7 @@ deploy/logs/
 state_last_restart.txt
 build/
 dist/
-*.spec
+# *.spec
 
 # Extensoes e pacotes de release
 *.exe
@@ -37,5 +37,5 @@ __pycache__/
 .venv/
 venv/
 env/
-*.txt
-install.ps1
+# *.txt
+# install.ps1
