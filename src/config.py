@@ -19,6 +19,7 @@ class AppConfig:
     CHECK_SERVER: bool = os.getenv("CHECK_SERVER", "False").lower() in ("true", "1", "yes")
     CHECK_COMMON: bool = os.getenv("CHECK_COMMON", "False").lower() in ("true", "1", "yes")
     CHECK_MULTIPLE_PIDS: bool = os.getenv("CHECK_MULTIPLE_PIDS", "False").lower() in ("true", "1", "yes")
+    NUMBER_OF_RETRIES: int = int(os.getenv("NUMBER_OF_RETRIES", "3"))
 
 # Instância global das configurações
 config = AppConfig()

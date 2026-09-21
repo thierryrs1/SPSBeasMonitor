@@ -326,13 +326,22 @@ class BeasMonitor:
         schema = svc.mssql_database
         service = svc.service_name
 
+        import time
+        from src.config import config
         alive = False
-        try:
-            if ping(self.local_ip, timeout=2) is not None:
-                with socket.create_connection((self.local_ip, port), timeout=2):
-                    alive = True
-        except Exception:
-            alive = False
+        
+        for attempt in range(config.NUMBER_OF_RETRIES):
+            try:
+                if ping(self.local_ip, timeout=2) is not None:
+                    with socket.create_connection((self.local_ip, port), timeout=2):
+                        alive = True
+                        break
+            except Exception:
+                pass
+            
+            if not alive and attempt < config.NUMBER_OF_RETRIES - 1:
+                logger.warning(f"[{service}] [Portal Web] Tentativa {attempt + 1}/{config.NUMBER_OF_RETRIES} falhou. Tentando novamente...")
+                time.sleep(2)
 
         if not alive:
             logger.error(
